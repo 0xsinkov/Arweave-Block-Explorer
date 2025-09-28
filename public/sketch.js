@@ -24,6 +24,12 @@ const frustum = new THREE.Frustum();
 const cameraMatrix = new THREE.Matrix4();
 let activeFilterType = null;
 
+// Orbit state for isometric camera interaction
+let orbitTarget = new THREE.Vector3(0, 0, 0);
+let orbitYaw = 0;     // horizontal angle around target (radians)
+let orbitPitch = 0;   // vertical angle (radians), clamp to avoid flipping
+let orbitRadius = 100; // distance from target
+
 // Block stats
 const blockBaseSize = 25;
 let blockCount = 0;
@@ -300,8 +306,8 @@ function addNewBlock(blockData) {
     monolith.add(blockGroup);
     blockCount++;
 
-    // Adjust camera on the first block and every 50 blocks thereafter
-    if (blockCount === 1 || blockCount % 50 === 0) {
+    // Adjust camera on the first block and every 100 blocks thereafter
+    if (blockCount === 1 || blockCount % 100 === 0) {
         fitCameraToMonolith();
     }
     // Constellations removed
@@ -350,6 +356,14 @@ function fitCameraToMonolith() {
     camera.position.set(center.x, center.y, cameraZ);
     cameraTarget.copy(center);
     camera.lookAt(cameraTarget);
+
+    // Reset orbit state to match new camera placement
+    orbitTarget.copy(cameraTarget);
+    const offset = new THREE.Vector3().subVectors(camera.position, orbitTarget);
+    orbitRadius = Math.max(10, offset.length());
+    orbitYaw = Math.atan2(offset.x, offset.z);
+    const horizLen = Math.sqrt(offset.x * offset.x + offset.z * offset.z);
+    orbitPitch = Math.atan2(offset.y, horizLen);
 }
 
 // ---- WebSocket Management ----
@@ -380,9 +394,7 @@ function connectWebSocket() {
         ws.close();
     }
 
-    const scheme = (window.location.protocol === 'https:') ? 'wss' : 'ws';
-    const host = window.location.host; // includes hostname:port
-    const wsUrl = `${scheme}://${host}`;
+    const wsUrl = 'ws://127.0.0.1:3002';
     ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
@@ -473,19 +485,49 @@ function onMouseMove(event) {
 
     switch (cameraMode) {
         case 'top':
-            // Pan in top view
-            const panSpeed = 0.5;
-            camera.position.x -= deltaMove.x * panSpeed;
-            camera.position.z += deltaMove.y * panSpeed;
+            // Pan in top view: move camera and target together on XZ plane
+            {
+                const panSpeed = 0.5;
+                const dx = -deltaMove.x * panSpeed;
+                const dz =  deltaMove.y * panSpeed;
+                camera.position.x += dx;
+                camera.position.z += dz;
+                cameraTarget.x += dx;
+                cameraTarget.z += dz;
+                camera.lookAt(cameraTarget);
+            }
             break;
         case 'iso':
+            // True orbit around target using spherical coordinates
+            {
+                const yawSpeed = 0.005;
+                const pitchSpeed = 0.005;
+                orbitYaw += deltaMove.x * yawSpeed;
+                orbitPitch -= deltaMove.y * pitchSpeed;
+                // Clamp pitch to avoid gimbal lock
+                const maxPitch = THREE.MathUtils.degToRad(89);
+                orbitPitch = Math.max(-maxPitch, Math.min(maxPitch, orbitPitch));
+                const cosPitch = Math.cos(orbitPitch);
+                const sinPitch = Math.sin(orbitPitch);
+                const sinYaw = Math.sin(orbitYaw);
+                const cosYaw = Math.cos(orbitYaw);
+                const px = orbitTarget.x + orbitRadius * sinYaw * cosPitch;
+                const py = orbitTarget.y + orbitRadius * sinPitch;
+                const pz = orbitTarget.z + orbitRadius * cosYaw * cosPitch;
+                camera.position.set(px, py, pz);
+                camera.lookAt(orbitTarget);
+                cameraTarget.copy(orbitTarget);
+            }
+            break;
         case 'default':
         default:
-            // Orbit in iso and default views
-            const rotationSpeed = 0.005;
-            monolith.rotation.y += deltaMove.x * rotationSpeed;
-            const newRotX = camera.rotation.x - deltaMove.y * rotationSpeed;
-            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, newRotX));
+            // Rotate sculpture horizontally; adjust vertical viewing with camera pitch
+            {
+                const rotationSpeed = 0.005;
+                monolith.rotation.y += deltaMove.x * rotationSpeed;
+                const newRotX = camera.rotation.x - deltaMove.y * rotationSpeed;
+                camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, newRotX));
+            }
             break;
     }
 
@@ -632,8 +674,25 @@ function onMouseWheel(event) {
             const zoomSpeedTop = 5;
             camera.position.y -= direction * zoomSpeedTop;
             camera.position.y = Math.max(20, Math.min(500, camera.position.y)); // Clamp height
+            camera.lookAt(cameraTarget);
             break;
         case 'iso':
+            // Zoom by changing orbit radius, keep looking at target
+            {
+                const zoomSpeedOrbit = 5;
+                orbitRadius = Math.max(10, orbitRadius - direction * zoomSpeedOrbit);
+                const cosPitch = Math.cos(orbitPitch);
+                const sinPitch = Math.sin(orbitPitch);
+                const sinYaw = Math.sin(orbitYaw);
+                const cosYaw = Math.cos(orbitYaw);
+                const px = orbitTarget.x + orbitRadius * sinYaw * cosPitch;
+                const py = orbitTarget.y + orbitRadius * sinPitch;
+                const pz = orbitTarget.z + orbitRadius * cosYaw * cosPitch;
+                camera.position.set(px, py, pz);
+                camera.lookAt(orbitTarget);
+                cameraTarget.copy(orbitTarget);
+            }
+            break;
         case 'default':
         default:
             // Dolly zoom
@@ -819,6 +878,15 @@ function setIsometricView() {
     camera.position.copy(targetPos);
     cameraTarget.copy(sphere.center);
     camera.lookAt(cameraTarget);
+
+    // Initialize orbit parameters from current camera pose
+    orbitTarget.copy(cameraTarget);
+    const offset = new THREE.Vector3().subVectors(camera.position, orbitTarget);
+    orbitRadius = Math.max(10, offset.length());
+    orbitYaw = Math.atan2(offset.x, offset.z);
+    // pitch: angle from horizontal plane
+    const horizontalLen = Math.sqrt(offset.x * offset.x + offset.z * offset.z);
+    orbitPitch = Math.atan2(offset.y, horizontalLen);
 }
 
 // ---- Main Animation Loop ----
