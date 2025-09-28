@@ -6,11 +6,11 @@ const path = require('path');
 const app = express();
 const port = parseInt(process.env.PORT || '3002', 10);
 const server = http.createServer(app);
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname)));
 
 // Explicit root and health endpoints for Render
 app.get('/health', (_req, res) => res.status(200).send('ok'));
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 const wss = new WebSocket.Server({ noServer: true });
 // Scan from current head backward for a fixed number of blocks, collecting recent media
 async function streamRecentTransactionsQuick(ws, blockScanLimit = 750, perTypeLimit = 250) {
@@ -152,7 +152,7 @@ async function fetchAllBlockTransactions(height) {
         after = lastEdge?.cursor || null;
         attempts++;
         // Be polite to the endpoint
-        if (hasNextPage) await new Promise(r => setTimeout(r, 100));
+        if (hasNextPage) await new Promise(r => setTimeout(r, 40));
     }
     return edges;
 }
@@ -363,7 +363,7 @@ async function streamBlocksForDay(ws, date, streamControl, visualOnly = false, e
                 }
 
                 currentHeight++;
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, 150));
 
             } catch (error) {
                 console.error(`Failed to process block ${currentHeight}:`, error.message);
@@ -483,9 +483,9 @@ server.on('upgrade', (request, socket, head) => {
 
 // SPA fallback: serve index.html for any other GET to avoid 404s on refresh/deep links
 app.get('*', (_req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 server.listen(port, () => {
-    console.log(`Server listening on http://localhost:${port}`);
+    console.log(`Arweave Block Stream server listening on http://localhost:${port}`);
 });
