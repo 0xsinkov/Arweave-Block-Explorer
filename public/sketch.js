@@ -380,7 +380,9 @@ function connectWebSocket() {
         ws.close();
     }
 
-    const wsUrl = 'ws://127.0.0.1:3002';
+    const scheme = (window.location.protocol === 'https:') ? 'wss' : 'ws';
+    const host = window.location.host; // includes hostname:port
+    const wsUrl = `${scheme}://${host}`;
     ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
