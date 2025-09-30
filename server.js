@@ -2,12 +2,18 @@ const express = require('express');
 const WebSocket = require('ws');
 const axios = require('axios');
 const path = require('path');
+const http = require('http');
 const app = express();
 const port = parseInt(process.env.PORT || '3002', 10);
 const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 // Serve static files from frontend directory (matches main branch structure)
 app.use(express.static(path.join(__dirname, 'frontend')));
+// Favicon fallback if not served by static (should be served from frontend/)
+app.get('/favicon.ico', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend', 'favicon.ico'));
+});
 // Scan from current head backward for a fixed number of blocks, collecting recent media
 async function streamRecentTransactionsQuick(ws, blockScanLimit = 750, perTypeLimit = 250) {
     try {
